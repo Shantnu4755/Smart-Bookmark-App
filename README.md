@@ -130,4 +130,4 @@ Open `http://localhost:3000`.
 
 - **Challenge: Middleware invocation failure**
   - **Issue:** middleware can break the request if an auth/network call throws.
-  - **Solution:** handled errors safely in `middleware.ts` so the request still returns a response.
+  - **Solution:** handled errors safely in `middleware.ts` so the request still returns a response. 
