@@ -17,6 +17,16 @@ type ApiResponse<T> = {
   data?: T;
 };
 
+function normalizeUrl(raw: string) {
+  const trimmed = raw.trim();
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const url = new URL(withScheme);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Invalid URL");
+  }
+  return url.toString();
+}
+
 export function BookmarkApp(props: {
   userId: string;
   initialBookmarks: Bookmark[];
@@ -28,6 +38,11 @@ export function BookmarkApp(props: {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Bookmark | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [deleting, setDeleting] = useState<Bookmark | null>(null);
 
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
@@ -45,9 +60,23 @@ export function BookmarkApp(props: {
   }
 
   async function createBookmark() {
-    if (!title.trim() || !url.trim()) return;
+    const nextTitle = title.trim();
+    const rawUrl = url.trim();
+    if (!nextTitle || !rawUrl) {
+      setError("Title and URL are required");
+      return;
+    }
+
+    let nextUrl: string;
+    try {
+      nextUrl = normalizeUrl(rawUrl);
+    } catch {
+      setError("Please enter a valid URL");
+      return;
+    }
 
     setError(null);
+    setSuccess(null);
     setLoading(true);
     try {
       const res = await fetch("/api/bookmarks", {
@@ -56,7 +85,7 @@ export function BookmarkApp(props: {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({ title, url }),
+        body: JSON.stringify({ title: nextTitle, url: nextUrl }),
       });
       const json = (await res.json()) as ApiResponse<Bookmark>;
       if (!res.ok || json.status !== "success") {
@@ -68,7 +97,7 @@ export function BookmarkApp(props: {
 
       await refreshBookmarks();
 
-      alert("Bookmark created");
+      setSuccess("Bookmark created");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -76,14 +105,84 @@ export function BookmarkApp(props: {
     }
   }
 
-  async function removeBookmark(id: string) {
-    const confirmed = confirm("Delete this bookmark? It will move to Deleted Bookmarks.");
-    if (!confirmed) return;
+  function openEdit(bookmark: Bookmark) {
+    setError(null);
+    setSuccess(null);
+    setEditing(bookmark);
+    setEditTitle(bookmark.title);
+    setEditUrl(bookmark.url);
+  }
+
+  function closeEdit() {
+    setEditing(null);
+    setEditTitle("");
+    setEditUrl("");
+  }
+
+  function openDelete(bookmark: Bookmark) {
+    setError(null);
+    setSuccess(null);
+    setDeleting(bookmark);
+  }
+
+  function closeDelete() {
+    setDeleting(null);
+  }
+
+  async function submitEdit() {
+    if (!editing) return;
+
+    const nextTitle = editTitle.trim();
+    const rawUrl = editUrl.trim();
+    if (!nextTitle || !rawUrl) {
+      setError("Title and URL are required");
+      return;
+    }
+
+    let nextUrl: string;
+    try {
+      nextUrl = normalizeUrl(rawUrl);
+    } catch {
+      setError("Please enter a valid URL");
+      return;
+    }
 
     setError(null);
+    setSuccess(null);
     setLoading(true);
     try {
-      const res = await fetch(`/api/bookmarks/${id}`,
+      const res = await fetch(`/api/bookmarks/${editing.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ title: nextTitle, url: nextUrl }),
+      });
+
+      const json = (await res.json()) as ApiResponse<Bookmark>;
+      if (!res.ok || json.status !== "success") {
+        throw new Error(json.message || "Failed to update bookmark");
+      }
+
+      closeEdit();
+      await refreshBookmarks();
+      setSuccess("Bookmark updated");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/bookmarks/${deleting.id}`,
         {
           method: "DELETE",
           headers: {
@@ -96,9 +195,10 @@ export function BookmarkApp(props: {
         throw new Error(json.message || "Failed to delete bookmark");
       }
 
+      closeDelete();
       await refreshBookmarks();
 
-      alert("Bookmark deleted");
+      setSuccess("Bookmark deleted");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -193,6 +293,12 @@ export function BookmarkApp(props: {
           </div>
         ) : null}
 
+        {success ? (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+            {success}
+          </div>
+        ) : null}
+
         <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-medium text-slate-200">Add bookmark</h2>
@@ -262,19 +368,139 @@ export function BookmarkApp(props: {
                     </a>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => removeBookmark(b.id)}
-                    disabled={loading}
-                    className="h-9 rounded-md border border-slate-700 bg-slate-900/60 px-3 text-sm text-slate-100 hover:bg-slate-900 disabled:opacity-60"
-                  >
-                    Delete
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(b)}
+                      disabled={loading}
+                      className="h-9 rounded-md border border-slate-700 bg-slate-900/60 px-3 text-sm text-slate-100 hover:bg-slate-900 disabled:opacity-60"
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openDelete(b)}
+                      disabled={loading}
+                      className="h-9 rounded-md border border-slate-700 bg-slate-900/60 px-3 text-sm text-slate-100 hover:bg-slate-900 disabled:opacity-60"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </section>
+
+        {editing ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-950 p-6 shadow-xl">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-50">Edit bookmark</h3>
+                  <p className="text-sm text-slate-400">Update title and URL, then save.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeEdit}
+                  disabled={loading}
+                  className="rounded-md px-2 py-1 text-sm text-slate-300 hover:bg-slate-900 disabled:opacity-60"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="grid gap-3">
+                <label className="grid gap-1">
+                  <span className="text-xs text-slate-400">Title</span>
+                  <input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="h-11 rounded-md border border-slate-800 bg-slate-950/60 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-slate-600"
+                    placeholder="Title"
+                  />
+                </label>
+
+                <label className="grid gap-1">
+                  <span className="text-xs text-slate-400">URL</span>
+                  <input
+                    value={editUrl}
+                    onChange={(e) => setEditUrl(e.target.value)}
+                    className="h-11 rounded-md border border-slate-800 bg-slate-950/60 px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-slate-600"
+                    placeholder="https://example.com"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-6 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeEdit}
+                  disabled={loading}
+                  className="h-10 rounded-md border border-slate-700 bg-slate-900/60 px-4 text-sm text-slate-100 hover:bg-slate-900 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitEdit}
+                  disabled={loading || !editTitle.trim() || !editUrl.trim()}
+                  className="h-10 rounded-md bg-indigo-500 px-4 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-60"
+                >
+                  Save changes
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {deleting ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-950 p-6 shadow-xl">
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-50">Delete bookmark</h3>
+                  <p className="text-sm text-slate-400">
+                    This will move the bookmark to Deleted Bookmarks.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeDelete}
+                  disabled={loading}
+                  className="rounded-md px-2 py-1 text-sm text-slate-300 hover:bg-slate-900 disabled:opacity-60"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
+                <div className="truncate text-sm font-medium text-slate-50">{deleting.title}</div>
+                <div className="truncate text-sm text-slate-400">{deleting.url}</div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeDelete}
+                  disabled={loading}
+                  className="h-10 rounded-md border border-slate-700 bg-slate-900/60 px-4 text-sm text-slate-100 hover:bg-slate-900 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  disabled={loading}
+                  className="h-10 rounded-md bg-rose-600 px-4 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-60"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

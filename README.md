@@ -11,7 +11,7 @@ Simple bookmark manager built with:
 - **Google OAuth only** (no email/password)
 - **Add bookmark** (title + URL)
 - **Delete bookmark**
-- **Private per user** via Postgres **RLS policies**
+- **Private per user** via Postgres **Row Level Security** policies
 - **Real-time updates** across tabs using Supabase Realtime Postgres changes
  
 ## Prerequisites
@@ -49,7 +49,7 @@ npm install
  - **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
  - **anon public key** → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
  
-### 2) Create DB table + RLS
+### 2) Create DB table + Row Level Security
  
  Create the DB objects below in Supabase:
 
@@ -110,6 +110,12 @@ npm run dev
 ```
  
 Open `http://localhost:3000`.
+
+Input validation:
+
+- Title is required
+- URL is required and must be a valid `http/https` URL
+- URLs are normalized (if you type `example.com`, it becomes `https://example.com`)
  
 ## Problems I ran into (and how I solved them)
  
@@ -123,9 +129,9 @@ Open `http://localhost:3000`.
  
 - **Real-time per-user updates**
   I used `postgres_changes` Realtime subscription filtered by `user_id=eq.<currentUserId>`.
-  Privacy is guaranteed by RLS policies and the per-user filter.
+  Privacy is guaranteed by Row Level Security policies and the per-user filter.
 
-- **RLS policy failures during insert/delete**
+- **Row Level Security policy failures during insert/delete**
   When I first wired up create/delete, requests failed with `new row violates row-level security`.
   I fixed this by ensuring inserts always set `user_id` to `auth.uid()` (server-side or client-side with an authenticated session) and by adding explicit `insert` / `delete` policies restricted to `auth.uid() = user_id`.
 
