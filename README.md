@@ -110,27 +110,24 @@ Open `http://localhost:3000`.
 - **URL** is required and must be a valid `http/https` URL
 - URLs are normalized (typing `example.com` becomes `https://example.com`)
 
-## Problems I ran into (and how I solved them)
+## Challenges & solutions
 
-- **Google OAuth needs a server callback in App Router**
-  The OAuth redirect returns a `code` that must be exchanged for a Supabase session on the server. This is handled in **`app/auth/callback/route.ts`** using `exchangeCodeForSession()`.
+- **Challenge: Google OAuth in App Router**
+  - **Issue:** after Google sign-in, the app receives a `code` that must be exchanged for a Supabase session.
+  - **Solution:** handled the exchange in **`app/auth/callback/route.ts`** using `exchangeCodeForSession()`.
 
-- **Redirect URL mismatch during OAuth**
-  Login failed when Supabase redirect URLs and Google authorized redirect URIs did not match exactly. The fix was to use a single callback path (**`/auth/callback`**) and add both **local** and **production** URLs in Supabase and Google.
+- **Challenge: Redirect URL mismatch**
+  - **Issue:** login fails if Supabase redirect URLs and Google authorized redirect URIs don’t match exactly.
+  - **Solution:** used one callback path (**`/auth/callback`**) and registered both **local** + **production** URLs in Supabase and Google.
 
-- **Row Level Security blocked writes at first**
-  Inserts/deletes failed with row-level security errors until the policies matched the data being written.
-  Fix:
-  - ensure inserts include the authenticated user id (`user_id = auth.uid()`)
-  - add policies for select/insert/update/delete restricted to the current user
+- **Challenge: Row Level Security blocked writes**
+  - **Issue:** insert/update/delete can fail if policies don’t match what the app writes.
+  - **Solution:** stored the owner id (`user_id = auth.uid()`) and added policies that allow **only the owner** to select/insert/update/delete.
 
-- **Vercel deployment failed due to missing env vars**
-  The app returned 500 errors when `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` were missing in **Vercel → Production**.
-  Fix:
-  - add the env vars in Vercel project settings
-  - redeploy
+- **Challenge: Vercel 500 errors after deploy**
+  - **Issue:** missing `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` in **Production** causes server errors.
+  - **Solution:** set env vars in **Vercel → Project Settings → Environment Variables** and redeployed.
 
-- **Middleware invocation failure**
-  Middleware can fail a request if a network/auth call throws.
-  Fix:
-  - handle errors safely in `middleware.ts` so requests still return a response
+- **Challenge: Middleware invocation failure**
+  - **Issue:** middleware can break the request if an auth/network call throws.
+  - **Solution:** handled errors safely in `middleware.ts` so the request still returns a response.
